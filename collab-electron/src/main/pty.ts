@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as net from "node:net";
 import * as crypto from "crypto";
 import { type IDisposable } from "node-pty";
-import { displayBasename } from "@collab/shared/path-utils";
+import { displayBasename, normalizeCommandName } from "@collab/shared/path-utils";
 import {
   getTmuxBin,
   getTerminfoDir,
@@ -48,6 +48,9 @@ let sidecarClient: SidecarClient | null = null;
 
 /** Map of sessionId -> data socket for sidecar sessions. */
 const dataSockets = new Map<string, net.Socket>();
+
+/** Map of sessionId -> shell PID for sidecar sessions (used for CC detection). */
+const sidecarShellPids = new Map<string, number>();
 
 /**
  * Track which sessions are sidecar-managed. Sidecar sessions never
@@ -138,6 +141,7 @@ function flushPendingPtyData(
     data,
   });
   scheduleForegroundCheck(sessionId);
+  onPtyDataForCCTracking(sessionId);
 }
 
 function forwardPtyData(
@@ -151,6 +155,7 @@ function forwardPtyData(
       data,
     });
     scheduleForegroundCheck(sessionId);
+    onPtyDataForCCTracking(sessionId);
     return;
   }
 
@@ -358,6 +363,7 @@ function attachClient(
         { sessionId, data },
       );
       scheduleForegroundCheck(sessionId);
+      onPtyDataForCCTracking(sessionId);
     }),
   );
 
@@ -600,7 +606,8 @@ export async function createSession(
   }, {
     cwdGuestPath: resolvedTarget.cwdGuestPath,
   });
-  const { sessionId, socketPath } = await client.createSession(createParams);
+  const { sessionId, socketPath, shellPid } = await client.createSession(createParams);
+  if (shellPid != null) sidecarShellPids.set(sessionId, shellPid);
 
   const dataSock = await client.attachDataSocket(
     socketPath,
@@ -684,9 +691,10 @@ export async function reconnectSession(
   if (backend === "sidecar") {
     await ensureSidecar();
     const client = getSidecarClient();
-    const { socketPath } = await client.reconnectSession(
+    const { socketPath, shellPid } = await client.reconnectSession(
       sessionId, cols, rows,
     );
+    if (shellPid != null) sidecarShellPids.set(sessionId, shellPid);
 
     const dataSock = await client.attachDataSocket(
       socketPath,
@@ -1080,6 +1088,53 @@ const lastForeground = new Map<string, string>();
 const statusTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const STATUS_DEBOUNCE_MS = 500;
 
+// How long after the last PTY output chunk before re-showing the attention
+// indicator. Kept short so the border snaps back quickly once CC goes quiet.
+const CC_REARM_MS = 300;
+const ccForeground = new Map<string, boolean>();
+const ccAttentionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const ccAttentionState = new Map<string, boolean>();
+
+function checkForClaudeChild(shellPid: number): boolean {
+  try {
+    const { execFileSync } = require("node:child_process");
+    const out = execFileSync(
+      "ps", ["-ax", "-o", "ppid=,comm="],
+      { encoding: "utf8", timeout: 2000 },
+    ).trim();
+    return out.split("\n").some((line) => {
+      const parts = line.trim().split(/\s+/);
+      return parts[0] === String(shellPid)
+        && normalizeCommandName(parts[1]) === "claude";
+    });
+  } catch {
+    return false;
+  }
+}
+
+function sendCcAttention(sessionId: string, waiting: boolean): void {
+  if (ccAttentionState.get(sessionId) === waiting) return;
+  ccAttentionState.set(sessionId, waiting);
+  sendToMainWindow("pty:cc-attention", { sessionId, waiting });
+}
+
+function onPtyDataForCCTracking(sessionId: string): void {
+  const isCC = ccForeground.get(sessionId);
+  if (!isCC) return;
+  const existing = ccAttentionTimers.get(sessionId);
+  if (existing) clearTimeout(existing);
+  if (ccAttentionState.get(sessionId)) {
+    sendCcAttention(sessionId, false);
+  }
+  ccAttentionTimers.set(
+    sessionId,
+    setTimeout(() => {
+      ccAttentionTimers.delete(sessionId);
+      sendCcAttention(sessionId, true);
+    }, CC_REARM_MS),
+  );
+}
+
 function shouldSkipForegroundCheck(sessionId: string): boolean {
   return (
     process.platform === "win32"
@@ -1121,6 +1176,28 @@ export function scheduleForegroundCheck(sessionId: string): void {
           sessionId,
           foreground: fg,
         });
+
+        // For sidecar sessions, detect CC directly from the main process
+        // using the stored shell PID, since the sidecar's getForegroundCommand
+        // uses process-group lookup which misses claude (it runs in its own pgrp).
+        const shellPid = sidecarShellPids.get(sessionId);
+        let isClaude: boolean;
+        if (shellPid != null) {
+          isClaude = checkForClaudeChild(shellPid);
+        } else {
+          isClaude = normalizeCommandName(fg) === "claude";
+        }
+        ccForeground.set(sessionId, isClaude);
+        if (!isClaude) {
+          const qt = ccAttentionTimers.get(sessionId);
+          if (qt) { clearTimeout(qt); ccAttentionTimers.delete(sessionId); }
+          sendCcAttention(sessionId, false);
+        } else {
+          // Trigger immediately — no quiescence wait. PTY data events will
+          // suppress this via onPtyDataForCCTracking while CC is active,
+          // and re-arm after CC_REARM_MS of silence.
+          sendCcAttention(sessionId, true);
+        }
       });
     }, STATUS_DEBOUNCE_MS),
   );
@@ -1133,6 +1210,11 @@ export function clearForegroundCache(sessionId: string): void {
     clearTimeout(timer);
     statusTimers.delete(sessionId);
   }
+  const qt = ccAttentionTimers.get(sessionId);
+  if (qt) { clearTimeout(qt); ccAttentionTimers.delete(sessionId); }
+  ccAttentionState.delete(sessionId);
+  ccForeground.delete(sessionId);
+  sidecarShellPids.delete(sessionId);
 }
 
 export function verifyTmuxAvailable(): { ok: true } | { ok: false; message: string } {

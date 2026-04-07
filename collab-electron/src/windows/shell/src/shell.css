@@ -786,6 +786,16 @@ body.platform-win {
 	background: var(--edge-dot-hover);
 }
 
+.edge-dot.edge-dot-cc-waiting {
+	background: #c15f3c;
+	animation: cc-dot-pulse 2s ease-in-out infinite;
+	animation-delay: var(--cc-pulse-delay, 0ms);
+}
+
+.edge-dot.edge-dot-cc-waiting:hover {
+	background: #d4704a;
+}
+
 .edge-dot-tooltip {
 	position: absolute;
 	font-family: var(--font-mono);
@@ -809,6 +819,47 @@ body.platform-win {
 	0% { border-color: rgba(128, 128, 128, 0.2); }
 	25% { border-color: #4a9eff; }
 	100% { border-color: rgba(128, 128, 128, 0.2); }
+}
+
+/* Claude Code attention indicator */
+@keyframes cc-dot-pulse {
+	0%, 100% { opacity: 1; }
+	50%       { opacity: 0.4; }
+}
+
+@keyframes cc-attention-pulse {
+	0%,
+	100% { border-color: rgba(193, 95, 60, 0.35); }
+	50%  { border-color: #c15f3c; }
+}
+
+/* Border on ::after so tile content is unaffected.
+   opacity transition handles both the initial fade-in (@starting-style)
+   and the focused-suppression below. Pulse only animates border-color — no conflict. */
+.canvas-tile.tile-cc-attention::after {
+	content: '';
+	position: absolute;
+	inset: -1px;
+	border-radius: 9px; /* 8px tile radius + 1px outset */
+	border: 1px solid transparent;
+	pointer-events: none;
+	opacity: 1;
+	transition: opacity 500ms ease-out;
+	animation: cc-attention-pulse 2s ease-in-out infinite;
+	animation-delay: var(--cc-pulse-delay, 0ms);
+}
+
+/* Fade in from transparent when the class is first applied. */
+@starting-style {
+	.canvas-tile.tile-cc-attention::after {
+		opacity: 0;
+	}
+}
+
+/* Focused tile: white ring takes over — suppress the orange border immediately. */
+.canvas-tile.tile-focused.tile-cc-attention::after {
+	opacity: 0;
+	transition: opacity 200ms ease-out;
 }
 
 /* ── Canvas tiles ── */

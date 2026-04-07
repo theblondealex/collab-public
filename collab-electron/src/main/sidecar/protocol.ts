@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { COLLAB_DIR } from "../paths";
 import { makeEndpointPath } from "../ipc-endpoint";
 
+export const SIDECAR_VERSION = 4;
+
 export const SIDECAR_SOCKET_PATH = makeEndpointPath("pty-sidecar");
 export const SIDECAR_PID_PATH = join(COLLAB_DIR, "pty-sidecar.pid");
 export const SESSION_SOCKET_DIR = join(COLLAB_DIR, "pty-sessions");
@@ -100,6 +102,7 @@ export interface SessionCreateParams {
 export interface SessionCreateResult {
   sessionId: string;
   socketPath: string;
+  shellPid: number;
 }
 
 // session.reconnect params/result
@@ -112,6 +115,7 @@ export interface SessionReconnectParams {
 export interface SessionReconnectResult {
   sessionId: string;
   socketPath: string;
+  shellPid: number;
 }
 
 // session.list result

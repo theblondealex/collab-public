@@ -55,6 +55,14 @@ window.shellApi.onPrefChanged((key, value) => {
 		applyCanvasOpacity(value);
 		broadcastCanvasOpacity();
 	}
+	if (key === "claudeCodeAttention") {
+		claudeCodeAttentionEnabled = value !== false;
+	}
+});
+
+let claudeCodeAttentionEnabled = true;
+window.shellApi.getPref("claudeCodeAttention").then((v) => {
+	claudeCodeAttentionEnabled = v !== false;
 });
 
 // -- Viewport --
@@ -1205,6 +1213,22 @@ async function init() {
 				minimap.update();
 				break;
 			}
+		}
+	});
+
+	// -- Tile list init + click-to-navigate --
+
+	window.shellApi.onCcAttention((payload) => {
+		tileListWebview.send("cc-attention", payload);
+		if (!claudeCodeAttentionEnabled) return;
+		const tile = tiles.find((t) => t.type === "term" && t.ptySessionId === payload.sessionId);
+		if (!tile) return;
+		tileManager.setClaudeAttention(tile.id, payload.waiting);
+	});
+
+	window.shellApi.onPrefChanged((key, value) => {
+		if (key === "claudeCodeAttention" && value === false) {
+			tileManager.clearAllCcAttention();
 		}
 	});
 

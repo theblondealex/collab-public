@@ -47,6 +47,9 @@ function App() {
   const [entries, setEntries] = useState<TerminalEntry[]>([]);
   const [focusedSessionId, setFocusedSessionId] =
     useState<string | null>(null);
+  const [ccWaiting, setCcWaiting] = useState<Set<string>>(new Set());
+  const [ccWaitingAt, setCcWaitingAt] = useState<Map<string, number>>(new Map());
+
   useEffect(() => {
     // Listen for messages from the shell renderer via webview.send()
     // These arrive on ipcRenderer.on() in the universal preload,
@@ -69,6 +72,11 @@ function App() {
           setEntries((prev) =>
             prev.filter((e) => e.sessionId !== sessionId),
           );
+          setCcWaiting((prev) => {
+            const next = new Set(prev);
+            next.delete(sessionId);
+            return next;
+          });
         } else if (channel === "terminal-list:focus") {
           const sessionId = args[0] as string | null;
           setFocusedSessionId(sessionId);
@@ -84,11 +92,31 @@ function App() {
                 : e,
             ),
           );
+        } else if (channel === "cc-attention") {
+          const payload = args[0] as { sessionId: string; waiting: boolean };
+          setCcWaiting((prev) => {
+            const next = new Set(prev);
+            if (payload.waiting) next.add(payload.sessionId);
+            else next.delete(payload.sessionId);
+            return next;
+          });
+          if (payload.waiting) {
+            setCcWaitingAt((prev) => {
+              const next = new Map(prev);
+              next.set(payload.sessionId, Date.now());
+              return next;
+            });
+          }
         } else if (channel === "pty-exit") {
           const payload = args[0] as { sessionId: string };
           setEntries((prev) =>
             prev.filter((e) => e.sessionId !== payload.sessionId),
           );
+          setCcWaiting((prev) => {
+            const next = new Set(prev);
+            next.delete(payload.sessionId);
+            return next;
+          });
         }
       },
     );
@@ -129,8 +157,10 @@ function App() {
       <div className="terminal-list-header">Terminals</div>
       {entries.map((entry) => {
         const idle = isIdle(entry);
+        const waiting = ccWaiting.has(entry.sessionId);
         const focused = entry.sessionId === focusedSessionId;
         const stateClass = idle ? "idle" : "busy";
+        const dotClass = waiting ? "cc-waiting" : stateClass;
         const classes = [
           "terminal-entry",
           stateClass,
@@ -145,7 +175,10 @@ function App() {
             className={classes}
             onClick={() => peekTile(entry.sessionId)}
           >
-            <div className={`status-dot ${stateClass}`} />
+            <div
+              className={`status-dot ${dotClass}`}
+              style={waiting ? { animationDelay: `${-(( ccWaitingAt.get(entry.sessionId) ?? Date.now()) % 2000)}ms` } : undefined}
+            />
             <div className="entry-info">
               <div className="entry-top">
                 <span className="shell-name">

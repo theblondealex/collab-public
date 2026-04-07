@@ -251,6 +251,18 @@ contextBridge.exposeInMainWorld("shellApi", {
       ipcRenderer.removeListener("pty:status-changed", handler);
   },
 
+  onCcAttention: (
+    cb: (payload: { sessionId: string; waiting: boolean }) => void,
+  ) => {
+    const handler = (
+      _event: unknown,
+      payload: { sessionId: string; waiting: boolean },
+    ) => cb(payload);
+    ipcRenderer.on("pty:cc-attention", handler);
+    return () =>
+      ipcRenderer.removeListener("pty:cc-attention", handler);
+  },
+
   onPtyExit: (
     cb: (payload: { sessionId: string; exitCode: number }) => void,
   ) => {

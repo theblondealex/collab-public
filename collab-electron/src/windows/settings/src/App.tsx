@@ -381,6 +381,34 @@ function RadioOption({
   );
 }
 
+function ClaudeAttentionToggle() {
+  const [enabled, setEnabled] = useState(true);
+
+  useEffect(() => {
+    api.getPref("claudeCodeAttention")
+      .then((v) => { if (v === false) setEnabled(false); })
+      .catch(() => { });
+  }, []);
+
+  async function handleToggle() {
+    const next = !enabled;
+    setEnabled(next);
+    await api.setPref("claudeCodeAttention", next);
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Claude Code attention indicator</p>
+      <RadioOption
+        selected={enabled}
+        onClick={() => { void handleToggle(); }}
+        label="Pulse border when waiting for input"
+        description="Highlights terminal tiles running Claude Code when they are idle and waiting for your response."
+      />
+    </div>
+  );
+}
+
 function MacTerminalPane() {
   const [mode, setMode] = useState<TerminalMode>("sidecar");
 
@@ -424,6 +452,8 @@ function MacTerminalPane() {
           ))}
         </div>
       </div>
+
+      <ClaudeAttentionToggle />
     </div>
   );
 }
@@ -473,6 +503,8 @@ function WindowsTerminalPane() {
           ))}
         </div>
       </div>
+
+      <ClaudeAttentionToggle />
     </div>
   );
 }

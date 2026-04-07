@@ -562,6 +562,9 @@ contextBridge.exposeInMainWorld("api", {
       "tile-list:remove",
       "tile-list:update",
       "tile-list:focus",
+      "pty-status-changed",
+      "pty-exit",
+      "cc-attention",
     ];
     const handlers = channels.map((ch) => {
       const handler = (_event: unknown, ...args: unknown[]) =>

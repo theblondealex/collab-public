@@ -473,7 +473,8 @@ export class SidecarServer {
     this.sessions.set(sessionId, session);
 
     dataServer.listen(socketPath, () => {
-      const result: SessionCreateResult = { sessionId, socketPath };
+      this.resetIdleTimer();
+      const result: SessionCreateResult = { sessionId, socketPath, shellPid: ptyProcess.pid };
       sock.write(makeResponse(id, result));
     });
   }
@@ -506,6 +507,7 @@ export class SidecarServer {
     const result: SessionReconnectResult = {
       sessionId: params.sessionId,
       socketPath: session.socketPath,
+      shellPid: session.pty.pid,
     };
     sock.write(makeResponse(id, result));
   }
@@ -678,15 +680,22 @@ export class SidecarServer {
     }
 
     const { execFileSync } = require("node:child_process");
+    // Use PPID-based lookup: find direct children of the shell process.
+    // The old approach (-g process_group) misses commands like `claude` that
+    // run in their own process group rather than inheriting the shell's.
     const out = execFileSync(
       "ps",
-      ["-o", "pid=,comm=", "-g", String(session.pty.pid)],
+      ["-ax", "-o", "ppid=,pid=,comm="],
       { encoding: "utf8", timeout: 2000 },
     ).trim();
-    const lines = out.split("\n").filter(Boolean);
-    const last = lines[lines.length - 1]?.trim();
-    return last
-      ? displayCommandName(last.replace(/^\d+\s+/, ""))
-      : session.displayName;
+    const ptyPidStr = String(session.pty.pid);
+    const children = out
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/))
+      .filter((parts) => parts[0] === ptyPidStr && parts[2]);
+    const last = children[children.length - 1];
+    const result = last ? displayCommandName(last[2]) : session.displayName;
+    console.log(`[sidecar-fg] ptyPid=${ptyPidStr} children=${JSON.stringify(children.map(p => p[2]))} result=${result}`);
+    return result;
   }
 }

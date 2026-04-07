@@ -114,6 +114,26 @@ export function createTileManager({
 		}
 	}
 
+	function setClaudeAttention(tileId, waiting) {
+		const dom = tileDOMs.get(tileId);
+		if (!dom) return;
+		if (waiting) {
+			// Set pulse phase as a CSS custom property — the ::after pseudo-element
+			// reads it for animation-delay so it syncs to the global 2s cycle.
+			dom.container.style.setProperty("--cc-pulse-delay", `${-(Date.now() % 2000)}ms`);
+		} else {
+			dom.container.style.removeProperty("--cc-pulse-delay");
+		}
+		dom.container.classList.toggle("tile-cc-attention", waiting);
+	}
+
+	function clearAllCcAttention() {
+		for (const [, dom] of tileDOMs) {
+			dom.container.classList.remove("tile-cc-attention");
+			dom.container.style.removeProperty("--cc-pulse-delay");
+		}
+	}
+
 	// -- Focus management --
 
 	function clearTileFocusRing() {
@@ -810,6 +830,8 @@ export function createTileManager({
 		restoreCanvasState,
 		getTileDOMs: () => tileDOMs,
 		getFocusedTileId: () => focusedTileId,
+		setClaudeAttention,
+		clearAllCcAttention,
 		setFocusedTileId: (id) => { focusedTileId = id; },
 		renameTile,
 		updateTileForRename,

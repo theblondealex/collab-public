@@ -300,6 +300,17 @@ export function createEdgeIndicators({
 			dot.style.left = `${dotX}px`;
 			dot.style.top = `${dotY}px`;
 			dot._edgeCtx = { tile, dotX, dotY, vw, vh };
+
+			const tileDOMs = getTileDOMs();
+			const tileDom = tileDOMs.get(tile.id);
+			const ccWaiting = tileDom?.container.classList.contains("tile-cc-attention") ?? false;
+			const wasWaiting = dot.classList.contains("edge-dot-cc-waiting");
+			if (ccWaiting && !wasWaiting) {
+				dot.style.setProperty("--cc-pulse-delay", `${-(Date.now() % 2000)}ms`);
+			} else if (!ccWaiting) {
+				dot.style.removeProperty("--cc-pulse-delay");
+			}
+			dot.classList.toggle("edge-dot-cc-waiting", ccWaiting);
 		}
 
 		for (const [id, dot] of edgeDotMap) {
